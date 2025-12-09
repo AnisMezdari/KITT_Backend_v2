@@ -1,0 +1,167 @@
+# ============================================================================
+# KITT Backend - Configuration Audio & Transcription
+# ============================================================================
+# Ce fichier contient tous les paramètres fonctionnels pour la transcription
+# Les secrets (API keys, etc.) restent dans .env
+
+# ============================================================================
+# DÉTECTION DE SILENCE
+# ============================================================================
+silence_detection:
+  # -------- AUDIO DU MICROPHONE (COMMERCIAL) --------
+  # Le commercial parle directement dans le micro → audio généralement plus fort
+  microphone:
+    # Seuil RMS (niveau sonore moyen)
+    # Recommandations: 500-700=normal, 700-1000=strict
+    rms_threshold: 670.0
+
+    # Amplitude maximale minimum
+    # Recommandations: 1000=standard, 2000=strict
+    min_amplitude: 1100
+
+    # Durée minimale en échantillons (~0.18s à 44100 Hz)
+    min_audio_length: 8000
+
+  # -------- AUDIO DU NAVIGATEUR (CLIENT) --------
+  # Le client parle via le partage d'écran → audio souvent plus faible et compressé
+  # ⚠️ IMPORTANT: Seuils augmentés pour éviter les hallucinations de Whisper sur le bruit de fond
+  browser:
+    # Seuil RMS - Équilibré entre sensibilité et filtrage du bruit
+    # Recommandations: 300-500=très sensible, 500-700=sensible, 700+=strict
+    rms_threshold: 500.0
+
+    # Amplitude maximale minimum - Filtrer le bruit de fond
+    # Recommandations: 500-700=très sensible, 800-1200=sensible
+    min_amplitude: 800
+
+    # Durée minimale - Ignorer les clips très courts (bruits)
+    min_audio_length: 8000
+
+# ============================================================================
+# WHISPER - TRANSCRIPTION
+# ============================================================================
+whisper:
+  # Langue de transcription
+  # Options: "fr", "en", "es", "de", "it", etc.
+  # Laisser null pour détection automatique (plus lent)
+  language: "fr"
+
+  # Prompt pour aider Whisper à mieux comprendre le contexte
+  # ⚠️ IMPORTANT: Plus le prompt est spécifique avec des exemples de vocabulaire,
+  # moins Whisper hallucine. Ajoute des termes techniques ou noms récurrents.
+  # Exemples:
+  #   - "Conversation commerciale entre un vendeur et un client. Vocabulaire: budget, devis, tarif, solution, produit, entreprise."
+  #   - "Discussion technique sur KIT. Mentions fréquentes: fonctionnalités, ROI, implémentation, intégration."
+  # Laisser vide si non utilisé
+  prompt: "Conversation commerciale professionnelle entre un commercial et un client en français. Vocabulaire typique: bonjour, entreprise, solution, produit, budget, tarif, devis, intéressé, besoin, service, démonstration, questions."
+
+  # Température (0.0 = précis, 1.0 = créatif)
+  # Recommandations:
+  #   - 0.0: Maximum de précision ✅ RECOMMANDÉ pour transcription
+  #   - 0.2-0.4: Bon équilibre
+  #   - 0.6+: Plus créatif mais moins précis
+  temperature: 0.0
+
+# ============================================================================
+# FILTRAGE DES TRANSCRIPTIONS
+# ============================================================================
+transcription_filtering:
+  # Longueur minimale de texte transcrit (en caractères)
+  # Les transcriptions plus courtes sont rejetées
+  # Recommandations:
+  #   - 1-2: Très permissif (garde même "oui", "non")
+  #   - 3-5: Standard ✅ RECOMMANDÉ
+  #   - 10+: Strict (ignore les réponses courtes)
+  min_length: 3
+
+  # Patterns/mots à ignorer dans les transcriptions
+  # Les transcriptions contenant ces patterns seront rejetées
+  unwanted_patterns:
+    - "sous-titres réalisés par"
+    - "sous-titres par"
+    - "amara.org"
+    - "merci d'avoir regardé"
+    - "abonnez-vous"
+    - "[Musique]"
+    - "[musique]"
+    # ⚠️ HALLUCINATIONS TYPIQUES DE WHISPER (bruit de fond)
+    - "Bonjour à tous, et bienvenue"
+    - "bienvenue dans cette nouvelle vidéo"
+    - "n'oubliez pas de vous abonner"
+    - "likez cette vidéo"
+    - "cliquez sur la cloche"
+    - "mettez un pouce bleu"
+    - "partagez cette vidéo"
+    - "à très bientôt"
+    - "à la prochaine"
+    - "bye bye"
+    # Ajoutez vos propres patterns ici
+
+# ============================================================================
+# PARAMÈTRES AUDIO DE BASE
+# ============================================================================
+audio:
+  # Fréquence d'échantillonnage (Hz)
+  sample_rate: 44100
+
+  # Sous-type d'encodage
+  subtype: "PCM_16"
+
+# ============================================================================
+# GUIDE DE DIAGNOSTIC
+# ============================================================================
+#
+# PROBLÈME: Le CLIENT (navigateur) ne capte pas les voix
+# SOLUTION:
+#   1. Réduire browser.rms_threshold (essayer 300-400)
+#   2. Réduire browser.min_amplitude (essayer 400-500)
+#   3. Activer LOG_LEVEL=DEBUG dans .env pour voir les valeurs RMS
+#
+# PROBLÈME: Le COMMERCIAL (micro) ne capte pas les voix
+# SOLUTION:
+#   1. Réduire microphone.rms_threshold (essayer 500-600)
+#   2. Réduire microphone.min_amplitude (essayer 700-800)
+#
+# PROBLÈME: Trop de bruits de fond du CLIENT
+# SOLUTION:
+#   1. Augmenter browser.rms_threshold (essayer 600-700)
+#   2. Augmenter browser.min_amplitude (essayer 800-1000)
+#   3. Augmenter browser.min_audio_length (essayer 10000-15000)
+#
+# PROBLÈME: Trop de bruits de fond du COMMERCIAL
+# SOLUTION:
+#   1. Augmenter microphone.rms_threshold (essayer 800-900)
+#   2. Augmenter microphone.min_amplitude (essayer 1500-2000)
+#
+# PROBLÈME: Transcriptions imprécises
+# SOLUTION:
+#   1. Vérifier que language est bien défini ("fr")
+#   2. Ajouter un prompt pertinent dans whisper.prompt
+#   3. S'assurer que temperature=0.0
+#
+# PROBLÈME: Transcriptions parasites (sous-titres, musique, etc.)
+# SOLUTION:
+#   1. Ajouter les patterns dans unwanted_patterns
+#   2. Augmenter transcription_filtering.min_length
+#
+# ============================================================================
+# COMPRENDRE LES SEUILS
+# ============================================================================
+#
+# RMS (Root Mean Square) : Niveau sonore MOYEN de l'audio
+#   - Valeur basse (300-500) = SENSIBLE (capte même les voix faibles)
+#   - Valeur haute (700-1000) = STRICT (ignore les bruits légers)
+#
+# MIN_AMPLITUDE : Pic de volume MAXIMUM dans l'audio
+#   - Valeur basse (500-700) = SENSIBLE
+#   - Valeur haute (1500-2000) = STRICT
+#
+# MIN_AUDIO_LENGTH : Durée minimale en échantillons
+#   - 4000 = ~0.09 secondes (très court)
+#   - 8000 = ~0.18 secondes (normal)
+#   - 22050 = ~0.5 secondes (long)
+#
+# POURQUOI DEUX CONFIGURATIONS ?
+#   - MICROPHONE (commercial) : Audio direct, fort et clair
+#   - NAVIGATEUR (client) : Audio compressé, souvent plus faible
+#     → Nécessite des seuils plus sensibles !
