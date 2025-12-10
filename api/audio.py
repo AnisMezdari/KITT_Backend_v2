@@ -3,11 +3,20 @@ Routes API pour le traitement audio et génération d'insights
 """
 import logging
 import numpy as np
+from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 
 from services import TranscriptionService, CoachingService
+from services.relevance_filter import RelevanceFilter
 from api.calls import get_active_calls
-from config.settings import TIME_THRESHOLD_DUPLICATE
+from config.settings import (
+    TIME_THRESHOLD_DUPLICATE,
+    COOLDOWN_BASE,
+    COOLDOWN_HIGH_RELEVANCE,
+    COOLDOWN_AFTER_INSIGHT,
+    MIN_RELEVANCE_SCORE,
+    ALLOW_COOLDOWN_BYPASS
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +25,7 @@ router = APIRouter(tags=["audio"])
 # Services
 transcription_service = TranscriptionService()
 coaching_service = CoachingService()
+relevance_filter = RelevanceFilter()
 
 
 @router.post("/audio/{session_id}")
@@ -68,8 +78,85 @@ async def process_audio(session_id: str, request: Request):
     if not client_text and not commercial_text:
         return {"advice": None, "transcription": ""}
 
-    # 🗑️ THROTTLING SUPPRIMÉ (MIN_INSIGHT_INTERVAL=0, code mort inutile)
-    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🆕 SYSTÈME DE PERTINENCE INTELLIGENTE v2
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # 1. Vérifier le score de pertinence AVANT de générer l'insight
+    should_generate, relevance_score, analysis = relevance_filter.should_generate_insight(
+        manager.messages,
+        manager.pillar_progress,
+        manager.last_insight_time,
+        manager.conversation_phase,
+        min_score=MIN_RELEVANCE_SCORE
+    )
+
+    # 2. Cooldown adaptatif
+    current_time = datetime.now().timestamp()
+    elapsed_since_last = current_time - manager.last_insight_time if manager.last_insight_time > 0 else 999
+
+    # Déterminer le cooldown requis selon le score
+    if relevance_score >= 85:
+        required_cooldown = COOLDOWN_HIGH_RELEVANCE  # 10s pour événements critiques
+    elif relevance_score >= 70:
+        required_cooldown = COOLDOWN_BASE  # 20s pour pertinence moyenne
+    else:
+        required_cooldown = COOLDOWN_AFTER_INSIGHT  # 25s pour faible pertinence
+
+    # Vérifier le cooldown (sauf bypass autorisé)
+    cooldown_active = elapsed_since_last < required_cooldown
+    can_bypass = ALLOW_COOLDOWN_BYPASS and relevance_score >= 85
+
+    if cooldown_active and not can_bypass:
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[COOLDOWN] ⏸️  INSIGHT BLOQUÉ - COOLDOWN ACTIF")
+        logger.info(f"{'='*80}")
+        logger.info(f"[COOLDOWN] ⏱️  Temps écoulé: {elapsed_since_last:.1f}s / {required_cooldown}s requis")
+        logger.info(f"[COOLDOWN] 📊 Score de pertinence: {relevance_score}/100")
+        logger.info(f"[COOLDOWN] 🚫 Raison: Cooldown adaptatif en cours")
+        logger.info(f"{'='*80}\n")
+
+        return {
+            "advice": None,
+            "transcription": f"CLIENT: {client_text}\nCOMMERCIAL: {commercial_text}",
+            "reason": "cooldown_active",
+            "cooldown_info": {
+                "elapsed": round(elapsed_since_last, 1),
+                "required": required_cooldown,
+                "relevance_score": relevance_score
+            }
+        }
+
+    # Si score trop faible, ne pas générer
+    if not should_generate:
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[PERTINENCE] 🚫 INSIGHT NON GÉNÉRÉ - SCORE TROP FAIBLE")
+        logger.info(f"{'='*80}")
+        logger.info(f"[PERTINENCE] 📊 Score: {relevance_score}/100 (min requis: {MIN_RELEVANCE_SCORE})")
+        logger.info(f"[PERTINENCE] 📝 Analyse: {', '.join(analysis['reasons'])}")
+        logger.info(f"[PERTINENCE] 💡 Triggers: {', '.join(analysis['triggers']) if analysis['triggers'] else 'Aucun'}")
+        logger.info(f"{'='*80}\n")
+
+        return {
+            "advice": None,
+            "transcription": f"CLIENT: {client_text}\nCOMMERCIAL: {commercial_text}",
+            "reason": "low_relevance",
+            "relevance_info": {
+                "score": relevance_score,
+                "min_required": MIN_RELEVANCE_SCORE,
+                "analysis": analysis
+            }
+        }
+
+    # 3. Si on arrive ici : pertinence OK + cooldown OK → Générer l'insight
+    logger.info(f"\n{'='*80}")
+    logger.info(f"[PERTINENCE] ✅ GÉNÉRATION D'INSIGHT AUTORISÉE")
+    logger.info(f"{'='*80}")
+    logger.info(f"[PERTINENCE] 📊 Score: {relevance_score}/100")
+    logger.info(f"[PERTINENCE] ⏱️  Cooldown: {elapsed_since_last:.1f}s (requis: {required_cooldown}s)")
+    logger.info(f"[PERTINENCE] 🎯 Triggers: {', '.join(analysis['triggers'])}")
+    logger.info(f"{'='*80}\n")
+
     # CONSTRUCTION DU CONTEXTE
     context_window = manager.get_context_window()
     context = "\n".join([

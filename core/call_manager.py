@@ -36,6 +36,15 @@ class CallManager:
         self.conversation_phase = "introduction"
         self.topics_covered: List[str] = []
         self.needs_summary_update = False
+
+        # Tracking des 5 piliers de discovery
+        self.pillar_progress = {
+            1: {"name": "Comprendre le contexte", "status": "not_started", "signals": []},
+            2: {"name": "Identifier le vrai problème", "status": "not_started", "signals": []},
+            3: {"name": "Mesurer l'impact", "status": "not_started", "signals": []},
+            4: {"name": "Valider le décisionnel", "status": "not_started", "signals": []},
+            5: {"name": "Next Step intelligent", "status": "not_started", "signals": []}
+        }
         
         # Métriques de performance
         self.performance_metrics = {
@@ -49,11 +58,11 @@ class CallManager:
             },
             "seller_performance": []
         }
-        
+
         # Services
         self.context_analyzer = ContextAnalyzer()
         self.duplicate_detector = DuplicateDetector()
-        
+
         self.created_at = datetime.now()
     
     def _apply_profile_defaults(self, config: CallConfig) -> CallConfig:
@@ -97,31 +106,103 @@ class CallManager:
         # 🆕 Utiliser la détection de phase avec IA
         self.conversation_phase = await self.context_analyzer.detect_conversation_phase_ai(self.messages)
         self.pain_points = self.context_analyzer.extract_pain_points(self.messages)
-        
+
+        # 🆕 NOUVEAU : Mise à jour de la progression des piliers
+        self.update_pillar_progress(self.messages)
+
         if self.recent_concepts:
             all_topics = set()
             for concepts in self.recent_concepts:
                 all_topics.update(concepts.split(", "))
             self.topics_covered = list(all_topics)[-10:]
-    
+
+    def update_pillar_progress(self, messages: List[Dict]) -> None:
+        """
+        Analyse les derniers échanges pour détecter la progression sur chaque pilier
+        Status possibles : not_started, in_progress, completed
+        """
+        if not messages:
+            return
+
+        # Analyse des 5 derniers messages
+        recent_messages = " ".join([m['content'].lower() for m in messages[-5:]])
+
+        # Pilier 1 : Contexte (questions sur situation, processus, outils)
+        context_keywords = ["utilisez", "processus", "actuellement", "comment", "qui", "équipe", "rôle"]
+        if any(kw in recent_messages for kw in context_keywords):
+            if self.pillar_progress[1]["status"] == "not_started":
+                self.pillar_progress[1]["status"] = "in_progress"
+            question_count = recent_messages.count("?")
+            if question_count >= 2:
+                self.pillar_progress[1]["status"] = "completed"
+
+        # Pilier 2 : Pain (problème, difficulté, perte)
+        pain_keywords = ["problème", "difficulté", "perd", "manque", "frustrant", "compliqué"]
+        if any(kw in recent_messages for kw in pain_keywords):
+            if self.pillar_progress[2]["status"] == "not_started":
+                self.pillar_progress[2]["status"] = "in_progress"
+            # Completed si pain + quantification
+            quantif_keywords = ["heures", "jours", "€", "euros", "temps", "coûte"]
+            if any(pk in recent_messages for pk in pain_keywords) and any(qk in recent_messages for qk in quantif_keywords):
+                self.pillar_progress[2]["status"] = "completed"
+
+        # Pilier 3 : Impact (quantification, urgence, conséquences)
+        impact_keywords = ["combien", "coûte", "impact", "conséquences", "urgent", "important"]
+        if any(kw in recent_messages for kw in impact_keywords):
+            if self.pillar_progress[3]["status"] == "not_started":
+                self.pillar_progress[3]["status"] = "in_progress"
+            if recent_messages.count("€") > 0 or "heures" in recent_messages:
+                self.pillar_progress[3]["status"] = "completed"
+
+        # Pilier 4 : Décisionnel (budget, timeline, qui décide)
+        decision_keywords = ["décide", "budget", "timing", "quand", "validation", "décision"]
+        if any(kw in recent_messages for kw in decision_keywords):
+            if self.pillar_progress[4]["status"] == "not_started":
+                self.pillar_progress[4]["status"] = "in_progress"
+            if sum(kw in recent_messages for kw in decision_keywords) >= 2:
+                self.pillar_progress[4]["status"] = "completed"
+
+        # Pilier 5 : Next Step (démo, pilot, essai, suite)
+        nextstep_keywords = ["démo", "essai", "tester", "pilot", "prochaine étape", "rendez-vous"]
+        if any(kw in recent_messages for kw in nextstep_keywords):
+            if self.pillar_progress[5]["status"] == "not_started":
+                self.pillar_progress[5]["status"] = "in_progress"
+            if "démo" in recent_messages or "rendez-vous" in recent_messages:
+                self.pillar_progress[5]["status"] = "completed"
+
     def get_structured_context(self) -> str:
-        """Retourne le contexte structuré formaté"""
+        """Retourne le contexte structuré formaté avec progression des piliers"""
         duration_info = f"{len(self.full_transcript)} échanges"
-        
+
         pain_points_str = "Aucun identifié pour le moment"
         if self.pain_points:
             pain_points_str = "\n".join([f"  • {pp}" for pp in self.pain_points[-3:]])
-        
+
         topics_str = ", ".join(self.topics_covered[-8:]) if self.topics_covered else "Aucun"
-        
+
         phase_str = self.context_analyzer.get_phase_label(self.conversation_phase)
-        
+
+        # 🆕 Progression des piliers
+        pillar_status_icons = {
+            "not_started": "⚪",
+            "in_progress": "🟡",
+            "completed": "🟢"
+        }
+
+        pillars_str = "\n".join([
+            f"{pillar_status_icons[p['status']]} Pilier {i} - {p['name']}"
+            for i, p in self.pillar_progress.items()
+        ])
+
         structured_context = f"""
 ═══════════════════════════════════════════════════════════════════════════
 📊 CONTEXTE GLOBAL DE L'APPEL
 ═══════════════════════════════════════════════════════════════════════════
 🔄 Phase actuelle : {phase_str}
 ⏱️  Durée : {duration_info}
+
+🎯 PROGRESSION DES 5 PILIERS DE DISCOVERY :
+{pillars_str}
 
 💡 Pain Points Identifiés :
 {pain_points_str}

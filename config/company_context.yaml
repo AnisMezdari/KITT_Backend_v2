@@ -1,0 +1,93 @@
+# Configuration du contexte entreprise et produit pour les insights KITT
+# Ce fichier permet de personnaliser facilement le contexte métier sans modifier le code
+
+# ============================================================================
+# INFORMATIONS PRODUIT
+# ============================================================================
+product:
+  name: "KITT"
+  description: "un copilote de vente en temps réel pour équipes commerciales B2B"
+  full_description: "KITT est un copilote de vente en temps réel qui aide les commerciaux B2B à améliorer leurs appels de prospection et discovery en fournissant des insights actionnables basés sur les 5 piliers de la discovery."
+
+  # Cas d'usage principaux
+  use_cases:
+    - "Coaching en temps réel pendant les appels de prospection"
+    - "Suivi de la progression sur les 5 piliers de discovery"
+    - "Amélioration du taux de conversion des discovery calls"
+    - "Formation continue des équipes commerciales"
+
+# ============================================================================
+# CONTEXTE ENTREPRISE
+# ============================================================================
+company:
+  name: "KITT"
+  industry: "SaaS B2B"
+  target_market: "Équipes commerciales B2B (PME et grandes entreprises)"
+  value_proposition: "Améliorer la qualité des discovery calls et augmenter le taux de conversion"
+
+# ============================================================================
+# MÉTHODOLOGIE DE VENTE
+# ============================================================================
+sales_methodology:
+  framework: "5 Piliers de Discovery B2B SaaS"
+  description: "Méthodologie structurée basée sur SPIN et MEDDIC"
+
+  pillars:
+    1:
+      name: "Comprendre le contexte"
+      focus: "Poser des questions sur la situation actuelle avant de pitcher"
+      keywords: ["processus", "outils", "organisation", "équipe"]
+
+    2:
+      name: "Identifier le vrai problème"
+      focus: "Creuser les pains profonds et quantifiables"
+      keywords: ["problème", "difficulté", "frustrant", "perte"]
+
+    3:
+      name: "Mesurer l'impact"
+      focus: "Quantifier en temps, argent, et risques"
+      keywords: ["coûte", "impact", "urgence", "conséquences"]
+
+    4:
+      name: "Valider le décisionnel"
+      focus: "MEDDIC - Qui décide, budget, timeline"
+      keywords: ["décide", "budget", "timing", "validation"]
+
+    5:
+      name: "Next Step intelligent"
+      focus: "Proposer une suite concrète (démo, pilot)"
+      keywords: ["démo", "essai", "tester", "rendez-vous"]
+
+# ============================================================================
+# EXEMPLES DE SIGNAUX À DÉTECTER (optionnel - pour documentation)
+# ============================================================================
+signals:
+  alerts:
+    - "Pitch trop précoce sans contexte"
+    - "Pain trop vague, non quantifié"
+    - "Absence de quantification de l'impact"
+    - "Question budget éludée"
+    - "Tentative de fuite du prospect"
+
+  opportunities:
+    - "Info clé révélée par le prospect"
+    - "Pain identifié mais à creuser"
+    - "Moment clé pour quantifier l'impact"
+    - "Signal d'achat exprimé"
+    - "Ouverture pour proposer un next step"
+
+  progressions:
+    - "Bonnes questions de découverte"
+    - "Pain bien quantifié"
+    - "Impact business clarifié"
+    - "Process décisionnel compris"
+    - "Next step concret établi"
+
+# ============================================================================
+# NOTES D'UTILISATION
+# ============================================================================
+# Pour personnaliser pour une autre entreprise/produit :
+# 1. Modifier la section "product" avec vos informations
+# 2. Adapter la section "company" à votre contexte
+# 3. Si vous utilisez une autre méthodologie, modifier "sales_methodology"
+# 4. Les piliers peuvent être renommés mais garder la structure
