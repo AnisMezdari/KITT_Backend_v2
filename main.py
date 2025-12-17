@@ -145,6 +145,36 @@ app.include_router(audio.router)
 app.include_router(insights.router)
 app.include_router(summary.router)
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PRÉCHARGEMENT DES MODÈLES AU DÉMARRAGE
+# ═══════════════════════════════════════════════════════════════════════════
+@app.on_event("startup")
+async def startup_event():
+    """Précharge les modèles lourds au démarrage du serveur"""
+    logger.info("\n" + "="*80)
+    logger.info("🔄 PRÉCHARGEMENT DES MODÈLES")
+    logger.info("="*80)
+
+    # Précharger le modèle d'embeddings pour la détection de doublons
+    try:
+        from services.duplicate_detector import get_embedding_model
+        logger.info("📥 Chargement du modèle sentence-transformers...")
+        model = get_embedding_model()
+
+        # Force le téléchargement complet des poids du modèle
+        logger.info("🔄 Téléchargement des poids du modèle (peut prendre quelques secondes)...")
+        _ = model.encode(["test preload"], show_progress_bar=False)
+
+        logger.info("✅ Modèle d'embeddings préchargé avec succès")
+        logger.info(f"   Type: {type(model).__name__}")
+        logger.info(f"   Modèle: paraphrase-multilingual-MiniLM-L12-v2")
+    except Exception as e:
+        logger.error(f"❌ Erreur lors du préchargement du modèle: {e}")
+
+    logger.info("="*80)
+    logger.info("✅ Serveur prêt à traiter les requêtes")
+    logger.info("="*80 + "\n")
+
 
 # Routes principales
 @app.get("/")
@@ -169,9 +199,8 @@ async def root():
             "api": "Routes FastAPI modulaires par domaine",
             "core": "CallManager avec contexte structuré",
             "services": [
-                "TranscriptionService (Whisper)",
+                "TranscriptionService (Deepgram Nova-2)",
                 "ContextAnalyzer (Phase, pain points, concepts)",
-                "DuplicateDetector (IA + fenêtre temporelle)",
                 "CoachingService (Insights temps réel)",
                 "SummaryService (Résumés structurés)"
             ],

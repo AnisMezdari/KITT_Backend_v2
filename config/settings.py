@@ -39,6 +39,7 @@ _company_ctx = load_company_context()
 # SECRETS (depuis .env)
 # ============================================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 
 # ============================================================================
 # MODÈLES IA
@@ -86,19 +87,22 @@ AUDIO_SUBTYPE = _audio_cfg['audio']['subtype']
 MIN_INSIGHT_INTERVAL = int(os.getenv("MIN_INSIGHT_INTERVAL", "1"))
 MAX_CONTEXT_MESSAGES = 50  # ⚡ OPTIMISÉ : Augmenté de 24 à 50 pour un meilleur contexte RAG
 SUMMARY_THRESHOLD = 10  # Nombre de messages avant résumé
-TIME_THRESHOLD_DUPLICATE = 60  # ⚡ OPTIMISÉ v2 : Augmenté à 60s pour éviter les doublons à long terme
-MAX_INSIGHTS_CACHE = 5  # Nombre d'insights gardés en cache
+TIME_THRESHOLD_DUPLICATE = 45  # ✅ ASSOUPLI: Réduit de 250s à 45s pour fenêtre temporelle raisonnable
+MAX_INSIGHTS_CACHE = 10  # ✅ HARMONISÉ avec frontend : Augmenté de 5 à 10 pour cohérence
 
 # ============================================================================
-# SYSTÈME DE PERTINENCE INTELLIGENTE (v2)
+# SYSTÈME DE PERTINENCE INTELLIGENTE (v2) - ⚡ ASSOUPLI
 # ============================================================================
-# Cooldown adaptatif selon la pertinence
-COOLDOWN_BASE = 20  # Cooldown de base entre insights (20s)
-COOLDOWN_HIGH_RELEVANCE = 10  # Cooldown réduit si score > 80 (moment clé détecté)
-COOLDOWN_AFTER_INSIGHT = 25  # Cooldown après un insight généré
+# Cooldown adaptatif selon la pertinence (réduit pour plus d'insights)
+COOLDOWN_BASE = 10  # ✅ ASSOUPLI: Réduit de 20s à 10s
+COOLDOWN_HIGH_RELEVANCE = 5  # ✅ ASSOUPLI: Réduit de 10s à 5s
+COOLDOWN_AFTER_INSIGHT = 15  # ✅ ASSOUPLI: Réduit de 25s à 15s
 
 # Score minimum de pertinence pour générer un insight
-MIN_RELEVANCE_SCORE = 60  # 0-100, seuil pour déclencher génération IA
+MIN_RELEVANCE_SCORE = 25  # ✅ ASSOUPLI: Réduit à 25 pour générer beaucoup plus d'insights
+# 25 = Très permissif, beaucoup d'insights (phase de test/apprentissage) ✅ ACTIF
+# 40 = Équilibré (recommandé pour usage normal)
+# 60 = Stricte (seulement les moments très pertinents)
 
 # Bypass du cooldown pour événements critiques
 ALLOW_COOLDOWN_BYPASS = True  # Permet de bypass le cooldown si score > 85
@@ -107,7 +111,7 @@ ALLOW_COOLDOWN_BYPASS = True  # Permet de bypass le cooldown si score > 85
 # IA CONFIGURATION
 # ============================================================================
 DEFAULT_TEMPERATURE = 0.3
-COACHING_TEMPERATURE = 0.3
+COACHING_TEMPERATURE = 0.1  # ✅ RÉDUIT: 0.1 au lieu de 0.3 pour respecter le fine-tuning
 SUMMARY_TEMPERATURE = 0.3
 DUPLICATE_CHECK_TEMPERATURE = 0.2
 

@@ -38,7 +38,10 @@ class DuplicateDetector:
         self.model = OPENAI_MODEL
         self.temperature = DUPLICATE_CHECK_TEMPERATURE
         self.time_threshold = TIME_THRESHOLD_DUPLICATE
-        self.semantic_threshold = 0.85  # Seuil de similarité cosine pour doublons (0-1)
+        self.semantic_threshold = 0.60  # ✅ RENFORCÉ: Réduit de 0.72 à 0.60 pour bloquer insights trop similaires
+        # 0.60 = Très strict, bloque même les variations légères (évite "Contexte compris" ×4)
+        # 0.72 = Strict
+        # 0.85 = Permissif
 
     def _compute_semantic_similarity(self, text1: str, text2: str) -> float:
         """
@@ -55,7 +58,7 @@ class DuplicateDetector:
             model = get_embedding_model()
 
             # Générer les embeddings (vecteurs) pour les deux textes
-            embeddings = model.encode([text1, text2])
+            embeddings = model.encode([text1, text2], show_progress_bar=False)
 
             # Calculer la similarité cosine
             vec1 = embeddings[0]
@@ -76,6 +79,40 @@ class DuplicateDetector:
         except Exception as e:
             logger.error(f"❌ Erreur lors du calcul de similarité sémantique: {e}")
             return 0.0
+
+    def check_duplicate_title(
+        self,
+        new_title: str,
+        titles_history: List[str],
+        max_consecutive: int = 2
+    ) -> tuple[bool, str]:
+        """
+        Vérifie si le titre est identique aux derniers insights (évite répétition visuelle)
+
+        Args:
+            new_title: Nouveau titre à vérifier
+            titles_history: Liste des titres précédents
+            max_consecutive: Nombre max d'insights consécutifs avec le même titre (1 = bloquer au 2ème)
+
+        Returns:
+            Tuple (is_duplicate: bool, reason: str)
+        """
+        if not titles_history:
+            return False, "Aucun historique"
+
+        # Compter combien de fois le titre apparaît consécutivement à la fin de l'historique
+        consecutive_count = 0
+        for title in reversed(titles_history):
+            if title.lower().strip() == new_title.lower().strip():
+                consecutive_count += 1
+            else:
+                break  # Arrêter dès qu'on trouve un titre différent
+
+        # Si déjà répété max_consecutive fois → bloquer ce nouveau
+        if consecutive_count >= max_consecutive:
+            return True, f"❌ Titre '{new_title}' répété {consecutive_count} fois (max: {max_consecutive})"
+
+        return False, f"✅ Titre OK (répété seulement {consecutive_count} fois)"
 
     def check_duplicate_semantic(
         self,

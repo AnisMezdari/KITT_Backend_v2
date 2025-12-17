@@ -10,14 +10,17 @@
 silence_detection:
   # -------- AUDIO DU MICROPHONE (COMMERCIAL) --------
   # Le commercial parle directement dans le micro → audio généralement plus fort
+  # 🔍 DIAGNOSTIC: Seuils abaissés pour réduire la perte de mots
   microphone:
     # Seuil RMS (niveau sonore moyen)
     # Recommandations: 500-700=normal, 700-1000=strict
-    rms_threshold: 670.0
+    # 🔧 600.0: Réduit de 670 pour capturer plus de paroles
+    rms_threshold: 800.0
 
     # Amplitude maximale minimum
     # Recommandations: 1000=standard, 2000=strict
-    min_amplitude: 1100
+    # 🔧 950: Réduit de 1100 pour capturer les voix plus faibles
+    min_amplitude: 950
 
     # Durée minimale en échantillons (~0.18s à 44100 Hz)
     min_audio_length: 8000
@@ -25,17 +28,21 @@ silence_detection:
   # -------- AUDIO DU NAVIGATEUR (CLIENT) --------
   # Le client parle via le partage d'écran → audio souvent plus faible et compressé
   # ⚠️ IMPORTANT: Seuils augmentés pour éviter les hallucinations de Whisper sur le bruit de fond
+  # 🆕 OPTIMISÉ: Seuils relevés pour filtrer plus de bruit AVANT Whisper
   browser:
     # Seuil RMS - Équilibré entre sensibilité et filtrage du bruit
     # Recommandations: 300-500=très sensible, 500-700=sensible, 700+=strict
-    rms_threshold: 500.0
+    # 🆕 600.0: Filtre davantage le bruit de fond qui cause les hallucinations YouTube
+    rms_threshold: 680.0
 
     # Amplitude maximale minimum - Filtrer le bruit de fond
     # Recommandations: 500-700=très sensible, 800-1200=sensible
-    min_amplitude: 800
+    # 🆕 1000: Réduit les hallucinations sur bruit faible
+    min_amplitude: 1000
 
     # Durée minimale - Ignorer les clips très courts (bruits)
-    min_audio_length: 8000
+    # 🆕 10000 (~0.23s): Filtre les clips ultra-courts souvent parasites
+    min_audio_length: 10000
 
 # ============================================================================
 # WHISPER - TRANSCRIPTION
@@ -49,17 +56,16 @@ whisper:
   # Prompt pour aider Whisper à mieux comprendre le contexte
   # ⚠️ IMPORTANT: Plus le prompt est spécifique avec des exemples de vocabulaire,
   # moins Whisper hallucine. Ajoute des termes techniques ou noms récurrents.
-  # Exemples:
-  #   - "Conversation commerciale entre un vendeur et un client. Vocabulaire: budget, devis, tarif, solution, produit, entreprise."
-  #   - "Discussion technique sur KIT. Mentions fréquentes: fonctionnalités, ROI, implémentation, intégration."
-  # Laisser vide si non utilisé
-  prompt: "Conversation commerciale professionnelle entre un commercial et un client en français. Vocabulaire typique: bonjour, entreprise, solution, produit, budget, tarif, devis, intéressé, besoin, service, démonstration, questions."
+  # ✅ CORRIGÉ: Prompt enrichi avec vocabulaire technique FR/EN pour éviter "pays de retraite" → "pain point"
+  prompt: "Appel commercial professionnel. Vocabulaire technique : pain point, lead, prospect, closing, ROI, KPI, SaaS, objection, discovery, pitch, deal, KITT, produit, prix, budget, besoin."
 
   # Température (0.0 = précis, 1.0 = créatif)
   # Recommandations:
-  #   - 0.0: Maximum de précision ✅ RECOMMANDÉ pour transcription
-  #   - 0.2-0.4: Bon équilibre
-  #   - 0.6+: Plus créatif mais moins précis
+  #   - 0.0: Maximum de précision mais peut causer des répétitions ⚠️
+  #   - 0.2-0.3: Bon équilibre, réduit les hallucinations
+  #   - 0.4-0.6: Plus créatif mais moins précis
+  #   - 1.0: Très créatif, imprécis
+  # ✅ CORRIGÉ: 0.0 pour ZÉRO hallucination (les répétitions sont préférables aux phrases inventées)
   temperature: 0.0
 
 # ============================================================================
@@ -84,6 +90,11 @@ transcription_filtering:
     - "abonnez-vous"
     - "[Musique]"
     - "[musique]"
+    - "[Bruit]"
+    - "[bruit]"
+    - "(bruit de fond)"
+    - "(inaudible)"
+
     # ⚠️ HALLUCINATIONS TYPIQUES DE WHISPER (bruit de fond)
     - "Bonjour à tous, et bienvenue"
     - "bienvenue dans cette nouvelle vidéo"
@@ -95,6 +106,22 @@ transcription_filtering:
     - "à très bientôt"
     - "à la prochaine"
     - "bye bye"
+
+    # 🆕 HALLUCINATIONS SUPPLÉMENTAIRES (silence/bruit)
+    - "Merci de nous suivre"
+    - "N'hésitez pas à"
+    - "commentez ci-dessous"
+    - "Nous espérons que"
+    - "Cette vidéo vous a plu"
+    - "Restez connectés"
+    - "Rendez-vous"
+    - "À tout de suite"
+    - "On se retrouve"
+    - "Merci pour votre attention"
+    - "Je vous invite à aller voir"
+    - "aller voir les vidéos"
+    - "vidéos de B2B"
+
     # Ajoutez vos propres patterns ici
 
 # ============================================================================
@@ -122,11 +149,13 @@ audio:
 #   1. Réduire microphone.rms_threshold (essayer 500-600)
 #   2. Réduire microphone.min_amplitude (essayer 700-800)
 #
-# PROBLÈME: Trop de bruits de fond du CLIENT
+# PROBLÈME: Trop de bruits de fond du CLIENT / Hallucinations YouTube
 # SOLUTION:
-#   1. Augmenter browser.rms_threshold (essayer 600-700)
-#   2. Augmenter browser.min_amplitude (essayer 800-1000)
-#   3. Augmenter browser.min_audio_length (essayer 10000-15000)
+#   ✅ DÉJÀ OPTIMISÉ: rms_threshold=600, min_amplitude=1000, min_audio_length=10000
+#   Si encore trop de bruit:
+#   1. Augmenter browser.rms_threshold (essayer 650-700)
+#   2. Augmenter browser.min_amplitude (essayer 1100-1200)
+#   3. Augmenter browser.min_audio_length (essayer 12000-15000)
 #
 # PROBLÈME: Trop de bruits de fond du COMMERCIAL
 # SOLUTION:

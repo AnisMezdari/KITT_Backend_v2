@@ -26,6 +26,7 @@ class CallManager:
         
         # Insights
         self.last_insights: List[str] = []
+        self.last_titles: List[str] = []  # ✅ NOUVEAU: Tracking des titres pour éviter répétitions
         self.insight_timestamps: List[float] = []
         self.recent_concepts: List[str] = []
         self.last_insight_time: float = 0
@@ -241,38 +242,68 @@ class CallManager:
             parts.append(f"{role}: {msg['content']}")
         return "\n".join(parts)
     
-    def add_insight(self, insight: str):
+    def add_insight(self, insight: str, title: str = None):
         """Ajoute un insight au cache avec extraction de concepts et timestamp"""
         current_time = datetime.now().timestamp()
-        
+
         self.last_insights.append(insight)
         self.last_insight_time = current_time
         self.insight_timestamps.append(current_time)
-        
+
+        # Extraire le titre si non fourni
+        if title:
+            self.last_titles.append(title)
+        else:
+            # Extraire depuis l'insight (format: "titre - action")
+            if " - " in insight:
+                extracted_title = insight.split(" - ")[0].strip()
+                self.last_titles.append(extracted_title)
+            else:
+                self.last_titles.append(insight[:50])  # Fallback: premiers 50 chars
+
         concepts = self.context_analyzer.extract_key_concepts(insight)
         self.recent_concepts.append(concepts)
-        
+
         # Limiter l'historique
         if len(self.last_insights) > MAX_INSIGHTS_CACHE:
             self.last_insights = self.last_insights[-MAX_INSIGHTS_CACHE:]
+            self.last_titles = self.last_titles[-MAX_INSIGHTS_CACHE:]
             self.recent_concepts = self.recent_concepts[-MAX_INSIGHTS_CACHE:]
             self.insight_timestamps = self.insight_timestamps[-MAX_INSIGHTS_CACHE:]
-    
-    async def is_duplicate_insight(self, new_insight: str, time_threshold_seconds: int = None) -> bool:
-        """
-        Vérifie si l'insight est un doublon avec VECTORISATION SÉMANTIQUE
 
-        🆕 Harmonisé à 30s (TIME_THRESHOLD_DUPLICATE) pour cohérence
-        Nouvelle méthode: Utilise sentence-transformers pour une détection plus rapide et précise
+    async def is_duplicate_insight(self, new_insight: str, new_title: str = None, time_threshold_seconds: int = None) -> bool:
         """
+        Vérifie si l'insight est un doublon avec VÉRIFICATION TITRE + VECTORISATION SÉMANTIQUE
+
+        Utilise sentence-transformers pour une détection rapide et précise
+        """
+        # Extraire le titre si non fourni
+        if not new_title:
+            if " - " in new_insight:
+                new_title = new_insight.split(" - ")[0].strip()
+            else:
+                new_title = new_insight[:50]
+
+        # ✅ VÉRIFICATION 1: Bloquer si même titre répété consécutivement
+        is_title_dup, title_reason = self.duplicate_detector.check_duplicate_title(
+            new_title,
+            self.last_titles,
+            max_consecutive=1  # ✅ Bloquer dès le 2ème insight avec même titre (autoriser 1 seul)
+        )
+
+        if is_title_dup:
+            logger.warning(f"[ANTI-DOUBLON] ❌ TITRE RÉPÉTITIF: {title_reason}")
+            return True
+
+        # ✅ VÉRIFICATION 2: Similarité sémantique
         is_dup, analysis = self.duplicate_detector.check_duplicate_semantic(
             new_insight,
             self.last_insights,
             self.insight_timestamps,
-            time_threshold_seconds  # Utilisera TIME_THRESHOLD_DUPLICATE (30s) si None
+            time_threshold_seconds
         )
         return is_dup
-    
+
     def should_throttle(self, min_interval: int = 20) -> bool:
         """Vérifie si on doit throttler"""
         if self.last_insight_time == 0:

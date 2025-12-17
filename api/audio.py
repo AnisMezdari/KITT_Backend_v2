@@ -56,19 +56,41 @@ async def process_audio(session_id: str, request: Request):
     
     client_audio = np.frombuffer(client_data, dtype=np.int16)
     commercial_audio = np.frombuffer(commercial_data, dtype=np.int16)
-    
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🆕 DÉTECTION DE L'ORDRE CHRONOLOGIQUE
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Détecte qui a parlé en premier en analysant le début de la parole dans chaque audio
+    client_start_time = transcription_service.detect_speech_start_time(client_audio, "CLIENT")
+    commercial_start_time = transcription_service.detect_speech_start_time(commercial_audio, "COMMERCIAL")
+
+    # Déterminer qui a parlé en premier
+    client_spoke_first = client_start_time < commercial_start_time
+
+    logger.info(f"[CHRONOLOGIE] Client start: {client_start_time:.3f}s, Commercial start: {commercial_start_time:.3f}s")
+    logger.info(f"[CHRONOLOGIE] {'CLIENT' if client_spoke_first else 'COMMERCIAL'} a parlé en premier")
+
     # TRANSCRIPTION PARALLÈLE
     client_text, commercial_text = await transcription_service.transcribe_parallel(
         client_audio,
         commercial_audio
     )
-    
-    # Ajouter au contexte (🆕 avec await pour détection phase IA)
-    if client_text:
-        await manager.add_message("assistant", client_text)
 
-    if commercial_text:
-        await manager.add_message("user", commercial_text)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ✅ AJOUT AU CONTEXTE DANS L'ORDRE CHRONOLOGIQUE
+    # ═══════════════════════════════════════════════════════════════════════════
+    if client_spoke_first:
+        # CLIENT a parlé en premier → ajouter dans l'ordre : CLIENT puis COMMERCIAL
+        if client_text:
+            await manager.add_message("assistant", client_text)
+        if commercial_text:
+            await manager.add_message("user", commercial_text)
+    else:
+        # COMMERCIAL a parlé en premier → ajouter dans l'ordre : COMMERCIAL puis CLIENT
+        if commercial_text:
+            await manager.add_message("user", commercial_text)
+        if client_text:
+            await manager.add_message("assistant", client_text)
 
     # Log historique
     if client_text or commercial_text:
@@ -183,9 +205,10 @@ async def process_audio(session_id: str, request: Request):
             "transcription": f"CLIENT: {client_text}\nCOMMERCIAL: {commercial_text}"
         }
     
-    # VÉRIFICATION ANTI-DOUBLON AVEC IA (avec prise en compte du temps)
+    # Générer l'insight complet
     full_insight = f"{advice_json['title']} - {advice_json['details']['description']}"
-    
+
+    # VÉRIFICATION ANTI-DOUBLON
     logger.info(f"\n{'='*80}")
     logger.info(f"[ANTI-DOUBLON] 🔍 VÉRIFICATION DOUBLON EN COURS")
     logger.info(f"{'='*80}")
@@ -195,12 +218,14 @@ async def process_audio(session_id: str, request: Request):
     logger.info(f"[INSIGHT]    Action: {advice_json['details']['description']}")
     logger.info(f"[INSIGHT]    Insight complet: {full_insight}")
     logger.info(f"{'='*80}")
-    logger.info(f"[INSIGHT] ⏱️  Seuil temporel harmonisé: {TIME_THRESHOLD_DUPLICATE}s (utilisé partout)")
-    logger.info(f"[INSIGHT] 🧬 Vérification par vectorisation sémantique...")
 
-    # 🆕 Utiliser le seuil harmonisé (30s par défaut)
-    is_duplicate = await manager.is_duplicate_insight(full_insight, time_threshold_seconds=TIME_THRESHOLD_DUPLICATE)
-    
+    # Vérification de doublon avec détection titre + sémantique
+    is_duplicate = await manager.is_duplicate_insight(
+        full_insight,
+        new_title=advice_json['title'],  # ✅ Passer le titre pour vérification anti-répétition
+        time_threshold_seconds=TIME_THRESHOLD_DUPLICATE
+    )
+
     if is_duplicate:
         logger.info(f"\n{'='*80}")
         logger.info(f"[ANTI-DOUBLON] ❌ INSIGHT REJETÉ - DOUBLON DÉTECTÉ")
@@ -215,7 +240,7 @@ async def process_audio(session_id: str, request: Request):
         for i, old_insight in enumerate(manager.last_insights[-5:], 1):
             logger.info(f"[INSIGHT]    {i}. {old_insight[:80]}...")
         logger.info(f"{'='*80}\n")
-        
+
         return {
             "advice": None,
             "transcription": f"CLIENT: {client_text}\nCOMMERCIAL: {commercial_text}",
@@ -227,17 +252,17 @@ async def process_audio(session_id: str, request: Request):
                 "full_text": full_insight
             }
         }
-    
-    # Ajouter au cache
+
+    # Ajouter l'insight au cache
     logger.info(f"\n{'='*80}")
     logger.info(f"[ANTI-DOUBLON] ✅ INSIGHT VALIDÉ ET ACCEPTÉ")
     logger.info(f"{'='*80}")
-    logger.info(f"[INSIGHT] ✨ INSIGHT AJOUTÉ AU CACHE:")
+    logger.info(f"[INSIGHT] ✨ AJOUT AU CACHE:")
     logger.info(f"[INSIGHT]    Type: {advice_json['type'].upper()}")
     logger.info(f"[INSIGHT]    Titre: {advice_json['title']}")
     logger.info(f"[INSIGHT]    Action: {advice_json['details']['description']}")
     logger.info(f"{'='*80}\n")
-    manager.add_insight(full_insight)
+    manager.add_insight(full_insight, title=advice_json['title'])  # ✅ Passer le titre pour tracking
     
     return {
         "advice": advice_json,

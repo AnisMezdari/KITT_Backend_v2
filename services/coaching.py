@@ -3,8 +3,7 @@ Service de génération d'insights et coaching en temps réel
 """
 import logging
 import asyncio
-import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 import openai
 
 from config.settings import (
@@ -13,7 +12,7 @@ from config.settings import (
     PRODUCT_NAME,
     PRODUCT_DESCRIPTION,
     SALES_FRAMEWORK,
-
+    COMPANY_INDUSTRY,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ class CoachingService:
                 openai.chat.completions.create,
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=80,
+                max_tokens=80,  # ✅ OPTIMISÉ: 80 tokens pour format dataset complet
                 temperature=self.temperature
             )
             
@@ -55,170 +54,155 @@ class CoachingService:
             return None
     
     def build_coaching_prompt(self, context: str, manager) -> str:
-        """Construit le prompt pour le modèle fine-tuné avec les 5 piliers de discovery"""
+        """
+        ⚡ PROMPT SYSTÈME OPTIMISÉ : 5 Piliers + Analyse Incrémentale (30 dernières secondes)
 
-        structured_context = manager.get_structured_context()
+        Architecture Performance:
+        - Contexte réduit: 30 dernières secondes max (au lieu de tout l'historique)
+        - Prompt structuré: 5 piliers explicites pour guidance IA
+        - Format court forcé: Max 15 mots pour lecture instantanée
+        """
 
-        insights_history = ""
-        if manager.last_insights:
-            insights_history = "\n📝 DERNIERS INSIGHTS DONNÉS (NE PAS RÉPÉTER) :\n"
-            for i, insight in enumerate(manager.last_insights[-3:], 1):
-                concepts_idx = -(3-i+1) if (3-i+1) <= len(manager.recent_concepts) else 0
-                concepts = manager.recent_concepts[concepts_idx] if concepts_idx < 0 else "général"
-                insights_history += f"{i}. {insight[:80]}...\n"
-                insights_history += f"   📊 Concepts traités: {concepts}\n"
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 1. ANALYSE INCRÉMENTALE : 30 DERNIÈRES SECONDES UNIQUEMENT
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Approximation: 1 message ≈ 5-10 secondes de conversation
+        # → Prendre max 5 derniers messages (≈ 30 secondes de contexte)
+        recent_messages = manager.messages[-5:] if len(manager.messages) >= 5 else manager.messages
 
-            insights_history += "\n⚠️ RÈGLE CRITIQUE ANTI-REDONDANCE :\n"
-            insights_history += "- Si ton insight traite des MÊMES CONCEPTS que ci-dessus, réponds : \"\"\n"
-            insights_history += "- Si ton insight apporte EXACTEMENT la même information, réponds : \"\"\n"
-            insights_history += "- Privilégie la QUALITÉ sur la QUANTITÉ\n"
-            insights_history += "- En cas de doute sur la pertinence, réponds : \"\"\n"
+        phase_labels = {
+            "introduction": "Intro",
+            "discovery": "Discovery",
+            "presentation": "Pitch",
+            "negotiation": "Négo",
+            "closing": "Closing"
+        }
+        phase = phase_labels.get(manager.conversation_phase, manager.conversation_phase)
 
-        prompt = f"""Tu es un coach commercial expert en discovery B2B SaaS pour {PRODUCT_NAME}, {PRODUCT_DESCRIPTION}.
+        # ✅ FORMAT EXACT DU DATASET: emoji + "Pilier X - Nom"
+        pillar_icons = {
+            "not_started": "⚪",
+            "in_progress": "🟡",
+            "completed": "🟢"
+        }
 
-**MISSION : SURVEILLER LES 5 PILIERS DE LA DISCOVERY**
+        # Mapping des noms pour matcher EXACTEMENT le dataset
+        pillar_names_dataset = {
+            1: "Comprendre le contexte",
+            2: "Identifier le problème",  # Sans "vrai"
+            3: "Mesurer l'impact",
+            4: "Valider le décisionnel",
+            5: "Next Step"  # Sans "intelligent"
+        }
 
-Ton rôle est d'analyser les derniers échanges et de donner UN insight actionnable basé sur le framework {SALES_FRAMEWORK} :
+        pillar_summary = "\n".join([
+            f"{pillar_icons[p['status']]} Pilier {i} - {pillar_names_dataset[i]}"
+            for i, p in manager.pillar_progress.items()
+        ])
 
-1️⃣ **COMPRENDRE LE CONTEXTE** (ne jamais pitcher trop tôt)
-   - Le commercial pose-t-il assez de questions sur la situation actuelle ?
-   - A-t-il compris leur processus, leurs outils, leur environnement ?
-   - Détecte : pas assez de questions, prospect donne info clé, commercial coupe trop vite
-   - Insight type : "Creuse leur processus actuel" / "Demande qui est impliqué"
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 2. FORMATAGE DES MESSAGES (5 derniers = ~30 secondes)
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Utiliser recent_messages défini plus haut (5 derniers messages)
+        formatted_messages = "\n".join([
+            f"{'CLIENT' if msg['role'] == 'assistant' else 'COMMERCIAL'}: {msg['content']}"
+            for msg in recent_messages
+        ])
 
-2️⃣ **IDENTIFIER LE VRAI PROBLÈME (le Pain)**
-   - Le pain est-il précis et exploitable, ou vague et superficiel ?
-   - Mauvais : "On perd du temps" → Bon : "On perd 2h/jour à qualifier"
-   - Détecte : pain flou, irritant réel mentionné, commercial survole
-   - Insight type : "Demande l'impact concret (combien de temps/argent ?)" / "Pain détecté → creuse le flux"
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 3. PROMPT SYSTÈME OPTIMISÉ : Les 5 Piliers explicites
+        # ═══════════════════════════════════════════════════════════════════════════
+        prompt = f"""**MÉTHODOLOGIE - 5 PILIERS DE DISCOVERY B2B** :
+1️⃣ Comprendre le contexte : Questions sur situation actuelle AVANT de pitcher
+2️⃣ Identifier le problème : Creuser les pains profonds et quantifiables
+3️⃣ Mesurer l'impact : Quantifier en temps, argent, risques
+4️⃣ Valider le décisionnel : Qui décide, budget, timeline (MEDDIC)
+5️⃣ Next Step : Proposer suite concrète (démo, pilot)
 
-3️⃣ **MESURER L'IMPACT (le "so what")**
-   - Le problème est-il quantifié ? (temps, argent, risques)
-   - Y a-t-il un sentiment d'urgence ?
-   - Détecte : absence de quantification, manque d'urgence
-   - Insight type : "Quantifie l'impact en heures ou euros" / "Demande ce qui se passe s'ils ne changent rien"
+**DERNIERS ÉCHANGES (30 dernières secondes)** :
+{formatted_messages}
 
-4️⃣ **VALIDER LE DÉCISIONNEL (MEDDIC)**
-   - Qui décide ? Y a-t-il un budget ? Quel est le timing ?
-   - Le prospect est-il décisionnaire ?
-   - Détecte : rôle flou, process décision unclear
-   - Insight type : "Demande comment la décision sera prise" / "Clarifie son rôle dans le process"
+**PROGRESSION DES PILIERS** :
+{pillar_summary}
 
-5️⃣ **NEXT STEP INTELLIGENT (créer le pont vers closing)**
-   - Y a-t-il un signal d'achat ? Une opportunité de proposer une suite ?
-   - Détecte : hésitations, tentatives de fuite ("envoyez un mail"), signaux positifs
-   - Insight type : "Propose un créneau pour tester leur cas" / "Reformule l'objectif avant la suite"
+Que recommandes-tu ?
 
-{structured_context}
-
-**DERNIERS ÉCHANGES (contexte immédiat - BASE TOI UNIQUEMENT SUR CECI)** :
-───────────────────────────────────────────────────────────────────────────
-{context}
-───────────────────────────────────────────────────────────────────────────
-
-{insights_history}
-
-**CONSIGNE DE PRIORISATION**
-Regarde la progression des piliers dans le contexte ci-dessus :
-- Si un pilier est ⚪ (pas commencé) ou 🟡 (en cours), PRIORISE un insight sur ce pilier
-- Si tous les piliers sont 🟢, donne un insight de renforcement
-
-**FORMAT DE RÉPONSE STRICT**
-[Emoji] Signal de [catégorie] : [Observation courte] - [Action recommandée]
-
-Catégories :
-- 🔴 Alerte : Erreur, risque, problème à corriger immédiatement
-- 🔵 Opportunité : Moment clé, pain point à creuser, signal à exploiter
-- 🟢 Progression : Bonne pratique, avancée positive dans la discovery
-
-Si aucun signal significatif détecté OU si l'insight serait redondant, réponds uniquement : ""
-
-RÉPONDS UNIQUEMENT AVEC LE FORMAT CI-DESSUS, RIEN D'AUTRE."""
+Réponds en 1 ligne courte (max 15 mots) au format : [titre simple] - [action simple]"""
 
         return prompt
     
     def parse_insight_response(self, raw_response: str) -> Optional[Dict]:
-        """Parse la réponse du modèle au format structuré"""
-        
+        """
+        Parse la réponse du modèle au format SIMPLE: titre - action
+
+        ✅ FORMAT ATTENDU: [titre simple] - [action simple]
+        ✅ ACCEPTE avec ou sans emojis, avec ou sans préfixes
+        """
+
+        response = raw_response.strip()
+
+        # Vérifier si vide
+        if not response or len(response) < 5:
+            logger.warning("[PARSING] ❌ Réponse vide ou trop courte")
+            return None
+
+        # Nettoyer les emojis et préfixes communs (optionnels)
         emoji_to_type = {
             "🟢": "progression",
             "🔵": "opportunity",
             "🔴": "alert"
         }
-        
-        response = raw_response.strip()
-        
-        if not response or response == '""' or response == "":
-            return None
-        
-        detected_type = None
-        
+
+        detected_type = "progression"  # Type par défaut
+
+        # Détecter l'emoji si présent (optionnel)
         for emoji, type_name in emoji_to_type.items():
             if emoji in response:
                 detected_type = type_name
+                response = response.replace(emoji, "").strip()
                 break
-        
-        if not detected_type:
-            response_lower = response.lower()
-            
-            if any(word in response_lower for word in ["alerte", "attention", "danger", "risque", "erreur", "problème"]):
-                detected_type = "alert"
-            elif any(word in response_lower for word in ["opportunité", "occasion", "pain point", "signal", "moment clé"]):
-                detected_type = "opportunity"
-            else:
-                detected_type = "progression"
-        
-        try:
-            title = ""
-            action = ""
-            
-            if " : " in response:
-                parts = response.split(" : ", 1)
-                content = parts[1]
-                
-                if " - " in content:
-                    title_part, action_part = content.split(" - ", 1)
-                    title = title_part.strip()
-                    action = action_part.strip()
-                else:
-                    title = content.strip()
-                    action = "Analyser et agir sur ce signal"
-            else:
-                clean_response = response
-                for emoji in emoji_to_type.keys():
-                    clean_response = clean_response.replace(emoji, "")
-                
-                clean_response = clean_response.strip()
-                
-                if len(clean_response) > 100:
-                    title = clean_response[:80].strip()
-                    action = clean_response[80:].strip()
-                else:
-                    title = clean_response
-                    action = "Prendre en compte ce signal"
-            
-            if not title:
-                title = "Signal détecté"
-            
-            if not action:
-                action = "Analyser la situation"
-            
-            insight = {
-                "title": title,
-                "type": detected_type,
-                "details": {
-                    "description": action
-                }
+
+        # Retirer préfixes communs si présents (optionnel)
+        prefixes = ["Signal de progression", "Signal d'opportunité", "Signal d'alerte",
+                   "Progression", "Opportunité", "Alerte"]
+        for prefix in prefixes:
+            if response.startswith(prefix):
+                response = response[len(prefix):].strip()
+                # Retirer : ou | au début
+                if response.startswith(":") or response.startswith("|"):
+                    response = response[1:].strip()
+                break
+
+        # PARSER "Titre - Action" (seule contrainte obligatoire)
+        if " - " not in response:
+            logger.warning(f"[PARSING] ❌ Séparateur ' - ' manquant: {raw_response}")
+            return None
+
+        parts = response.split(" - ", 1)
+        title = parts[0].strip()
+        action = parts[1].strip()
+
+        # Validation minimale (juste éviter les cas absurdes)
+        if len(title) < 3:
+            title = "Signal détecté"
+        if len(action) < 3:
+            action = "Analyser la situation"
+
+        # Limiter les longueurs max
+        if len(title) > 100:
+            title = title[:97] + "..."
+        if len(action) > 150:
+            action = action[:147] + "..."
+
+        # CONSTRUIRE L'INSIGHT
+        insight = {
+            "title": title,
+            "type": detected_type,
+            "details": {
+                "description": action
             }
-            
-            return insight
-        
-        except Exception as e:
-            logger.error(f"[PARSING] Erreur: {e}")
-            return {
-                "title": "Signal détecté",
-                "type": detected_type or "progression",
-                "details": {
-                    "description": response[:100] if len(response) > 100 else response
-                }
-            }
+        }
+
+        logger.info(f"[PARSING] ✅ Format simple: {title} - {action}")
+
+        return insight
